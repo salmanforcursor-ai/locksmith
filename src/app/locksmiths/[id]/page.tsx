@@ -3,7 +3,7 @@
 import React, { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import { Card, Button, Badge, Input, Textarea } from '@/components/ui';
-import { formatRating, formatPhone, formatPriceRange, formatRelativeTime, generateReferenceNumber, cn } from '@/lib/utils';
+import { formatRating, formatPhone, formatPriceRange, formatRelativeTime, cn } from '@/lib/utils';
 import {
     ArrowLeft,
     Phone,
@@ -17,10 +17,11 @@ import {
     Heart,
     Share2,
     Award,
-    Calendar,
     Send,
     User,
-    Mail
+    Mail,
+    AlertCircle,
+    Loader2
 } from 'lucide-react';
 
 interface LocksmithData {
@@ -59,6 +60,13 @@ interface Review {
     created_at: string;
 }
 
+interface QuoteFormData {
+    name: string;
+    phone: string;
+    email: string;
+    description: string;
+}
+
 export default function LocksmithProfilePage({
     params
 }: {
@@ -74,6 +82,15 @@ export default function LocksmithProfilePage({
     const [showQuoteForm, setShowQuoteForm] = useState(false);
     const [quoteSubmitted, setQuoteSubmitted] = useState(false);
     const [quoteRef, setQuoteRef] = useState('');
+    const [quoteMessage, setQuoteMessage] = useState('');
+    const [quoteLoading, setQuoteLoading] = useState(false);
+    const [quoteError, setQuoteError] = useState<string | null>(null);
+    const [formData, setFormData] = useState<QuoteFormData>({
+        name: '',
+        phone: '',
+        email: '',
+        description: '',
+    });
 
     useEffect(() => {
         const fetchLocksmith = async () => {
@@ -105,11 +122,72 @@ export default function LocksmithProfilePage({
         fetchLocksmith();
     }, [id]);
 
-    const handleQuoteSubmit = (e: React.FormEvent) => {
+    const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+        setQuoteError(null);
+    };
+
+    const validatePhoneNumber = (phone: string): boolean => {
+        const cleaned = phone.replace(/\D/g, '');
+        return cleaned.length >= 10;
+    };
+
+    const handleQuoteSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        const ref = generateReferenceNumber();
-        setQuoteRef(ref);
-        setQuoteSubmitted(true);
+        setQuoteError(null);
+
+        // Validation
+        if (!formData.name.trim()) {
+            setQuoteError('Please enter your name');
+            return;
+        }
+
+        if (!formData.phone.trim()) {
+            setQuoteError('Please enter your phone number');
+            return;
+        }
+
+        if (!validatePhoneNumber(formData.phone)) {
+            setQuoteError('Please enter a valid 10-digit phone number');
+            return;
+        }
+
+        if (!formData.description.trim()) {
+            setQuoteError('Please describe your issue');
+            return;
+        }
+
+        setQuoteLoading(true);
+
+        try {
+            const response = await fetch('/api/leads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    locksmith_id: id,
+                    contact_name: formData.name.trim(),
+                    contact_phone: formData.phone.trim(),
+                    contact_email: formData.email.trim() || null,
+                    description: formData.description.trim(),
+                    urgency: 'now',
+                }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to send request');
+            }
+
+            setQuoteRef(data.lead?.reference_number || 'LN-' + Date.now());
+            setQuoteMessage(data.message || 'Your request has been sent successfully!');
+            setQuoteSubmitted(true);
+        } catch (err) {
+            console.error('Error submitting quote:', err);
+            setQuoteError(err instanceof Error ? err.message : 'Failed to send request. Please try again.');
+        } finally {
+            setQuoteLoading(false);
+        }
     };
 
     if (loading) {
@@ -399,39 +477,68 @@ export default function LocksmithProfilePage({
                                         <h3 className="font-semibold">Request a Quote</h3>
                                         <button
                                             type="button"
-                                            onClick={() => setShowQuoteForm(false)}
+                                            onClick={() => {
+                                                setShowQuoteForm(false);
+                                                setQuoteError(null);
+                                            }}
                                             className="text-[var(--foreground-muted)] hover:text-[var(--foreground)]"
                                         >
                                             ✕
                                         </button>
                                     </div>
+
+                                    {quoteError && (
+                                        <div className="p-3 rounded-lg bg-[var(--error)]/10 border border-[var(--error)]/30 text-[var(--error)] text-sm flex items-center gap-2">
+                                            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                            {quoteError}
+                                        </div>
+                                    )}
+
                                     <Input
                                         label="Your Name"
+                                        name="name"
                                         placeholder="John Doe"
+                                        value={formData.name}
+                                        onChange={handleFormChange}
                                         icon={<User className="w-5 h-5" />}
                                         required
                                     />
                                     <Input
                                         label="Phone"
+                                        name="phone"
                                         type="tel"
                                         placeholder="(416) 555-0123"
+                                        value={formData.phone}
+                                        onChange={handleFormChange}
                                         icon={<Phone className="w-5 h-5" />}
                                         required
                                     />
                                     <Input
-                                        label="Email"
+                                        label="Email (optional)"
+                                        name="email"
                                         type="email"
                                         placeholder="you@example.com"
+                                        value={formData.email}
+                                        onChange={handleFormChange}
                                         icon={<Mail className="w-5 h-5" />}
                                     />
                                     <Textarea
                                         label="Describe your issue"
+                                        name="description"
                                         placeholder="I'm locked out of my apartment..."
+                                        value={formData.description}
+                                        onChange={handleFormChange}
                                         rows={3}
                                         required
                                     />
-                                    <Button type="submit" variant="primary" className="w-full" icon={<Send className="w-5 h-5" />}>
-                                        Send Request
+                                    <Button
+                                        type="submit"
+                                        variant="primary"
+                                        className="w-full"
+                                        loading={quoteLoading}
+                                        icon={quoteLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                                    >
+                                        {quoteLoading ? 'Sending...' : 'Send Request'}
                                     </Button>
                                 </form>
                             )}
@@ -443,7 +550,7 @@ export default function LocksmithProfilePage({
                                     </div>
                                     <h3 className="font-semibold mb-2">Request Sent!</h3>
                                     <p className="text-sm text-[var(--foreground-secondary)] mb-4">
-                                        {locksmith.business_name} will contact you shortly.
+                                        {quoteMessage}
                                     </p>
                                     <div className="bg-[var(--background-secondary)] rounded-lg p-3 mb-4">
                                         <p className="text-xs text-[var(--foreground-muted)]">Reference Number</p>

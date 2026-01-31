@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useGeolocation } from '@/hooks';
@@ -17,7 +17,9 @@ import {
     Zap,
     Clock,
     Star,
-    ChevronRight
+    ChevronRight,
+    AlertCircle,
+    Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -34,24 +36,127 @@ export function HeroSection() {
     const [searchAddress, setSearchAddress] = useState('');
     const [selectedService, setSelectedService] = useState<string | null>(null);
     const [isSearching, setIsSearching] = useState(false);
+    const [addressError, setAddressError] = useState<string | null>(null);
+    const [suggestions, setSuggestions] = useState<string[]>([]);
+    const [isValidating, setIsValidating] = useState(false);
+    const [validatedCoords, setValidatedCoords] = useState<{ lat: number; lng: number } | null>(null);
 
-    const handleSearch = () => {
+    // When geolocation succeeds, reverse geocode to get address
+    useEffect(() => {
+        if (coordinates && !searchAddress) {
+            fetchReverseGeocode(coordinates.lat, coordinates.lng);
+        }
+    }, [coordinates]);
+
+    const fetchReverseGeocode = async (lat: number, lng: number) => {
+        try {
+            const response = await fetch(`/api/geocode?lat=${lat}&lng=${lng}`);
+            const data = await response.json();
+            if (data.success) {
+                setSearchAddress(data.formattedAddress);
+                setValidatedCoords({ lat, lng });
+                setAddressError(null);
+            }
+        } catch (error) {
+            console.error('Reverse geocode error:', error);
+        }
+    };
+
+    const validateAddress = async (address: string) => {
+        if (!address.trim()) {
+            setAddressError(null);
+            setSuggestions([]);
+            setValidatedCoords(null);
+            return;
+        }
+
+        setIsValidating(true);
+        setAddressError(null);
+        setSuggestions([]);
+
+        try {
+            const response = await fetch('/api/geocode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ address }),
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                setValidatedCoords({ lat: data.lat, lng: data.lng });
+                setSearchAddress(data.formattedAddress);
+                setAddressError(null);
+                setSuggestions([]);
+            } else {
+                setValidatedCoords(null);
+                setAddressError(data.error);
+                setSuggestions(data.suggestions || []);
+            }
+        } catch (error) {
+            console.error('Address validation error:', error);
+            setAddressError('Failed to validate address');
+        } finally {
+            setIsValidating(false);
+        }
+    };
+
+    const handleAddressBlur = () => {
+        if (searchAddress && !validatedCoords && !coordinates) {
+            validateAddress(searchAddress);
+        }
+    };
+
+    const handleSearch = async () => {
+        // If no coordinates yet, try to validate the address first
+        if (!coordinates && !validatedCoords && searchAddress) {
+            setIsSearching(true);
+            await validateAddress(searchAddress);
+
+            // Re-check after validation
+            if (!validatedCoords) {
+                setIsSearching(false);
+                return;
+            }
+        }
+
+        const finalCoords = validatedCoords || coordinates;
+
+        if (!finalCoords && !searchAddress) {
+            setAddressError('Please enter an address or use your current location');
+            return;
+        }
+
         setIsSearching(true);
+
         // Build search URL with query params
         const params = new URLSearchParams();
-        if (coordinates) {
-            params.set('lat', coordinates.lat.toString());
-            params.set('lng', coordinates.lng.toString());
+        if (finalCoords) {
+            params.set('lat', finalCoords.lat.toString());
+            params.set('lng', finalCoords.lng.toString());
         }
         if (selectedService) {
             params.set('service', selectedService);
         }
+        if (searchAddress) {
+            params.set('address', searchAddress);
+        }
+
         router.push(`/search?${params.toString()}`);
     };
 
     const handleUseLocation = () => {
+        setAddressError(null);
+        setSuggestions([]);
         requestLocation();
     };
+
+    const handleSuggestionClick = (suggestion: string) => {
+        setSearchAddress(suggestion);
+        setSuggestions([]);
+        validateAddress(suggestion);
+    };
+
+    const isLocationReady = coordinates || validatedCoords;
 
     return (
         <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-20 pb-16">
@@ -91,30 +196,80 @@ export function HeroSection() {
                             {/* Location Input */}
                             <div className="relative">
                                 <Input
-                                    placeholder={coordinates ? 'Using your current location' : 'Enter your address or postal code'}
+                                    placeholder="Enter your address, city, or postal code"
                                     value={searchAddress}
-                                    onChange={(e) => setSearchAddress(e.target.value)}
+                                    onChange={(e) => {
+                                        setSearchAddress(e.target.value);
+                                        setValidatedCoords(null);
+                                        setAddressError(null);
+                                        setSuggestions([]);
+                                    }}
+                                    onBlur={handleAddressBlur}
                                     icon={<MapPin className="w-5 h-5" />}
-                                    className={cn(coordinates && 'border-[var(--success)]')}
+                                    className={cn(
+                                        isLocationReady && 'border-[var(--success)]',
+                                        addressError && 'border-[var(--error)]'
+                                    )}
                                 />
                                 <button
                                     onClick={handleUseLocation}
                                     disabled={geoLoading}
                                     className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-[var(--surface)] text-[var(--foreground-muted)] hover:text-[var(--primary-400)] hover:bg-[var(--surface-hover)] transition-colors disabled:opacity-50"
-                                    title="Use my location"
+                                    title="Use my current location"
                                 >
-                                    <Crosshair className={cn('w-4 h-4', geoLoading && 'animate-pulse')} />
+                                    {geoLoading ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                        <Crosshair className="w-4 h-4" />
+                                    )}
                                 </button>
+
+                                {/* Suggestions dropdown */}
+                                {suggestions.length > 0 && (
+                                    <div className="absolute top-full left-0 right-0 mt-2 bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-xl z-20 overflow-hidden">
+                                        <p className="px-4 py-2 text-xs text-[var(--foreground-muted)] border-b border-[var(--border)]">
+                                            Did you mean:
+                                        </p>
+                                        {suggestions.map((suggestion, index) => (
+                                            <button
+                                                key={index}
+                                                onClick={() => handleSuggestionClick(suggestion)}
+                                                className="w-full px-4 py-3 text-left text-sm hover:bg-[var(--surface-hover)] transition-colors flex items-center gap-2"
+                                            >
+                                                <MapPin className="w-4 h-4 text-[var(--foreground-muted)]" />
+                                                {suggestion}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
 
-                            {geoError && (
-                                <p className="text-sm text-[var(--warning)] text-left">{geoError}</p>
+                            {/* Status messages */}
+                            {isValidating && (
+                                <p className="text-sm text-[var(--foreground-secondary)] text-left flex items-center gap-2">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Validating address...
+                                </p>
                             )}
 
-                            {coordinates && (
+                            {geoError && (
+                                <p className="text-sm text-[var(--warning)] text-left flex items-center gap-1">
+                                    <AlertCircle className="w-4 h-4" />
+                                    {geoError}
+                                </p>
+                            )}
+
+                            {addressError && (
+                                <p className="text-sm text-[var(--error)] text-left flex items-center gap-1">
+                                    <AlertCircle className="w-4 h-4" />
+                                    {addressError}
+                                </p>
+                            )}
+
+                            {isLocationReady && !addressError && (
                                 <p className="text-sm text-[var(--success)] text-left flex items-center gap-1">
                                     <span className="w-2 h-2 rounded-full bg-[var(--success)] animate-pulse" />
-                                    Location detected
+                                    {coordinates && !validatedCoords ? 'Using your current location' : 'Address validated'}
                                 </p>
                             )}
 
@@ -294,8 +449,6 @@ export function HowItWorksSection() {
 }
 
 export function CTASection() {
-    const router = useRouter();
-
     return (
         <section className="py-20 md:py-32 relative overflow-hidden">
             {/* Background */}
