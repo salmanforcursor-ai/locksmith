@@ -1,61 +1,61 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import { Card, Button, Input } from '@/components/ui';
 import { KeyRound, Mail, Lock, ArrowRight, Chrome } from 'lucide-react';
-import { signInWithEmail, signInWithGoogle } from '@/lib/supabase/auth';
 
-function LoginForm() {
+export default function LoginPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const redirectTo = searchParams.get('redirect') || '/';
+
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-
-    const searchParams = useSearchParams();
-
-    useEffect(() => {
-        const errorParam = searchParams.get('error');
-        if (errorParam === 'auth_callback_error') {
-            setError('Authentication failed. Please try again.');
-        }
-    }, [searchParams]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
         setLoading(true);
 
-        try {
-            const result = await signInWithEmail(email, password);
-            
-            if (result.error) {
-                setError(result.error);
-                setLoading(false);
-                return;
-            }
+        const supabase = createClient();
 
-            router.push('/');
-            router.refresh();
-        } catch (err) {
-            setError('An unexpected error occurred. Please try again.');
+        const { error: authError } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+        });
+
+        if (authError) {
+            setError(authError.message);
             setLoading(false);
+            return;
         }
+
+        router.push(redirectTo);
+        router.refresh();
     };
 
     const handleGoogleLogin = async () => {
         setLoading(true);
         setError(null);
 
-        const result = await signInWithGoogle();
-        
-        if (result.error) {
-            setError(result.error);
+        const supabase = createClient();
+
+        const { error: authError } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
+            },
+        });
+
+        if (authError) {
+            setError(authError.message);
             setLoading(false);
         }
-        // OAuth will redirect, so no need to handle success here
     };
 
     return (
@@ -142,7 +142,7 @@ function LoginForm() {
                             <div className="w-full border-t border-[var(--border)]" />
                         </div>
                         <div className="relative flex justify-center text-sm">
-                            <span className="px-4 bg-[var(--surface)] text-[var(--foreground-muted)]">
+                            <span className="px-4 bg-[rgba(30,30,46,0.6)] text-[var(--foreground-muted)]">
                                 Or continue with
                             </span>
                         </div>
@@ -153,6 +153,7 @@ function LoginForm() {
                         variant="secondary"
                         className="w-full"
                         onClick={handleGoogleLogin}
+                        disabled={loading}
                         icon={<Chrome className="w-5 h-5" />}
                     >
                         Sign in with Google
@@ -180,19 +181,5 @@ function LoginForm() {
                 </div>
             </div>
         </div>
-    );
-}
-
-export default function LoginPage() {
-    return (
-        <Suspense fallback={
-            <div className="min-h-screen flex items-center justify-center pt-20 pb-12 px-4">
-                <div className="w-full max-w-md text-center">
-                    <div className="animate-pulse">Loading...</div>
-                </div>
-            </div>
-        }>
-            <LoginForm />
-        </Suspense>
     );
 }

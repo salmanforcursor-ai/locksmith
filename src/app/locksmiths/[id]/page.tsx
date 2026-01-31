@@ -1,12 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, use } from 'react';
 import Link from 'next/link';
-import { useParams, useSearchParams } from 'next/navigation';
-import { Card, Button, Badge, AvailableBadge, BusyBadge, OfflineBadge, VerifiedBadge, PremiumBadge, Input, Textarea } from '@/components/ui';
-import { mockLocksmiths, mockServiceTypes } from '@/lib/mock-data';
-import type { Locksmith } from '@/types/database.types';
-import { cn, formatDistance, formatRating, formatPhone, formatPriceRange } from '@/lib/utils';
+import { Card, Button, Badge, Input, Textarea } from '@/components/ui';
+import { formatRating, formatPhone, formatPriceRange, formatRelativeTime, generateReferenceNumber, cn } from '@/lib/utils';
 import {
     ArrowLeft,
     Phone,
@@ -14,286 +11,287 @@ import {
     MapPin,
     Star,
     Clock,
-    Calendar,
     Shield,
-    Award,
-    Globe,
-    Mail,
+    CheckCircle,
     ExternalLink,
     Heart,
     Share2,
-    CheckCircle,
-    Navigation,
+    Award,
+    Calendar,
+    Send,
+    User,
+    Mail
 } from 'lucide-react';
 
-export default function LocksmithDetailPage() {
-    const params = useParams();
-    const searchParams = useSearchParams();
-    const [locksmith, setLocksmith] = useState<Locksmith | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [showQuoteForm, setShowQuoteForm] = useState(false);
-    const [isFavorite, setIsFavorite] = useState(false);
+interface LocksmithData {
+    id: string;
+    business_name: string;
+    description: string | null;
+    phone: string;
+    address: string;
+    city: string;
+    province: string;
+    postal_code: string;
+    website: string | null;
+    availability_status: 'available' | 'busy' | 'offline';
+    is_verified: boolean;
+    featured_tier: 'standard' | 'premium' | 'platinum';
+    avg_rating: number;
+    review_count: number;
+    response_time_minutes: number | null;
+    is_24_7: boolean;
+    years_in_business: number | null;
+    business_hours: Record<string, { open: string; close: string } | null> | null;
+}
 
-    // Quote form state
-    const [quoteName, setQuoteName] = useState('');
-    const [quotePhone, setQuotePhone] = useState('');
-    const [quoteService, setQuoteService] = useState('');
-    const [quoteDescription, setQuoteDescription] = useState('');
-    const [quoteSubmitting, setQuoteSubmitting] = useState(false);
+interface Service {
+    name: string;
+    slug: string;
+    price_min: number;
+    price_max: number;
+}
+
+interface Review {
+    id: string;
+    user_name: string;
+    rating: number;
+    content: string;
+    created_at: string;
+}
+
+export default function LocksmithProfilePage({
+    params
+}: {
+    params: Promise<{ id: string }>
+}) {
+    const { id } = use(params);
+    const [locksmith, setLocksmith] = useState<LocksmithData | null>(null);
+    const [services, setServices] = useState<Service[]>([]);
+    const [reviews, setReviews] = useState<Review[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [isFavorite, setIsFavorite] = useState(false);
+    const [showQuoteForm, setShowQuoteForm] = useState(false);
     const [quoteSubmitted, setQuoteSubmitted] = useState(false);
+    const [quoteRef, setQuoteRef] = useState('');
 
     useEffect(() => {
-        const id = params.id as string;
-        const found = mockLocksmiths.find(l => l.id === id);
-        setLocksmith(found || null);
-        setLoading(false);
+        const fetchLocksmith = async () => {
+            setLoading(true);
+            setError(null);
 
-        // Check if action=quote
-        if (searchParams.get('action') === 'quote') {
-            setShowQuoteForm(true);
-        }
-    }, [params.id, searchParams]);
+            try {
+                const response = await fetch(`/api/locksmiths/${id}`);
 
-    const handleQuoteSubmit = async (e: React.FormEvent) => {
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        throw new Error('Locksmith not found');
+                    }
+                    throw new Error('Failed to fetch locksmith');
+                }
+
+                const data = await response.json();
+                setLocksmith(data.locksmith);
+                setServices(data.services || []);
+                setReviews(data.reviews || []);
+            } catch (err) {
+                console.error('Error fetching locksmith:', err);
+                setError(err instanceof Error ? err.message : 'Failed to load locksmith');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchLocksmith();
+    }, [id]);
+
+    const handleQuoteSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        setQuoteSubmitting(true);
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        setQuoteSubmitting(false);
+        const ref = generateReferenceNumber();
+        setQuoteRef(ref);
         setQuoteSubmitted(true);
     };
 
     if (loading) {
         return (
             <div className="min-h-screen pt-20 pb-12">
-                <div className="container mx-auto px-4">
+                <div className="container mx-auto px-4 max-w-5xl">
                     <div className="animate-pulse space-y-6">
-                        <div className="h-8 w-32 skeleton" />
-                        <div className="h-64 skeleton rounded-2xl" />
-                        <div className="h-48 skeleton rounded-2xl" />
+                        <div className="h-8 w-48 bg-[var(--surface)] rounded" />
+                        <div className="h-64 bg-[var(--surface)] rounded-2xl" />
+                        <div className="grid md:grid-cols-3 gap-6">
+                            <div className="md:col-span-2 space-y-6">
+                                <div className="h-48 bg-[var(--surface)] rounded-2xl" />
+                                <div className="h-64 bg-[var(--surface)] rounded-2xl" />
+                            </div>
+                            <div className="h-96 bg-[var(--surface)] rounded-2xl" />
+                        </div>
                     </div>
                 </div>
             </div>
         );
     }
 
-    if (!locksmith) {
+    if (error || !locksmith) {
         return (
             <div className="min-h-screen pt-20 pb-12 flex items-center justify-center">
-                <Card className="text-center py-12 max-w-md mx-auto">
-                    <h2 className="text-xl font-bold mb-2">Locksmith Not Found</h2>
-                    <p className="text-[var(--foreground-secondary)] mb-4">
-                        The locksmith you&apos;re looking for doesn&apos;t exist or has been removed.
+                <Card className="text-center p-8 max-w-md">
+                    <div className="w-16 h-16 rounded-full bg-[var(--error)]/10 flex items-center justify-center mx-auto mb-4">
+                        <MapPin className="w-8 h-8 text-[var(--error)]" />
+                    </div>
+                    <h2 className="text-xl font-bold mb-2">
+                        {error === 'Locksmith not found' ? 'Locksmith Not Found' : 'Error Loading Profile'}
+                    </h2>
+                    <p className="text-[var(--foreground-secondary)] mb-6">
+                        {error || 'Unable to load this locksmith profile.'}
                     </p>
                     <Link href="/search">
-                        <Button variant="primary">Back to Search</Button>
+                        <Button variant="primary">
+                            Back to Search
+                        </Button>
                     </Link>
                 </Card>
             </div>
         );
     }
 
-    const isPremium = locksmith.featured_tier === 'premium' || locksmith.featured_tier === 'platinum';
-
-    const AvailabilityBadgeComponent = () => {
-        switch (locksmith.availability_status) {
-            case 'available':
-                return <AvailableBadge size="md" />;
-            case 'busy':
-                return <BusyBadge size="md" />;
-            default:
-                return <OfflineBadge size="md" />;
-        }
-    };
-
-    // Mock services for this locksmith
-    const services = [
-        { name: 'Home Lockout', price_min: 75, price_max: 150 },
-        { name: 'Lock Replacement', price_min: 100, price_max: 250 },
-        { name: 'Lock Rekey', price_min: 50, price_max: 100 },
-        { name: 'Key Duplication', price_min: 5, price_max: 25 },
-    ];
-
-    // Mock reviews
-    const reviews = [
-        { id: 1, rating: 5, title: 'Excellent service!', content: 'Arrived in 20 minutes and fixed my lock quickly. Very professional.', author: 'Sarah M.', date: '2 weeks ago' },
-        { id: 2, rating: 5, title: 'Highly recommend', content: 'Great price and fast response. Will use again.', author: 'Michael T.', date: '1 month ago' },
-        { id: 3, rating: 4, title: 'Good service', content: 'Got me back into my house when I was locked out. Friendly technician.', author: 'Jennifer L.', date: '1 month ago' },
-    ];
+    const fullAddress = `${locksmith.address}, ${locksmith.city}, ${locksmith.province} ${locksmith.postal_code}`;
+    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress)}`;
 
     return (
         <div className="min-h-screen pt-20 pb-12">
-            <div className="container mx-auto px-4">
-                {/* Back button */}
+            <div className="container mx-auto px-4 max-w-5xl">
+                {/* Back Button */}
                 <Link
                     href="/search"
                     className="inline-flex items-center gap-2 text-[var(--foreground-secondary)] hover:text-[var(--foreground)] transition-colors mb-6"
                 >
                     <ArrowLeft className="w-4 h-4" />
-                    Back to search
+                    Back to results
                 </Link>
 
-                <div className="grid lg:grid-cols-3 gap-6">
-                    {/* Main Content */}
-                    <div className="lg:col-span-2 space-y-6">
-                        {/* Profile Header */}
-                        <Card variant={isPremium ? 'premium' : 'default'} padding="lg">
-                            <div className="flex flex-col sm:flex-row gap-6">
-                                {/* Avatar */}
-                                <div className="flex-shrink-0">
-                                    <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-[var(--primary-600)] to-[var(--secondary-600)] flex items-center justify-center shadow-xl shadow-purple-500/25">
-                                        <span className="text-4xl font-bold text-white">
-                                            {locksmith.business_name.charAt(0).toUpperCase()}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                {/* Info */}
-                                <div className="flex-1">
-                                    <div className="flex flex-wrap items-start gap-2 mb-2">
-                                        <h1 className="text-2xl font-bold">{locksmith.business_name}</h1>
-                                        {locksmith.is_verified && <VerifiedBadge size="md" />}
-                                        {isPremium && <PremiumBadge size="md" />}
-                                    </div>
-
-                                    <div className="flex flex-wrap items-center gap-3 mb-4">
-                                        <AvailabilityBadgeComponent />
-                                        <span className="text-[var(--foreground-secondary)] flex items-center gap-1">
-                                            <MapPin className="w-4 h-4" />
-                                            {locksmith.city}, {locksmith.province}
-                                        </span>
-                                        {locksmith.response_time_minutes && (
-                                            <span className="text-[var(--foreground-secondary)] flex items-center gap-1">
-                                                <Clock className="w-4 h-4" />
-                                                Est. {locksmith.response_time_minutes} min response
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    {/* Rating */}
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <div className="flex">
-                                            {[1, 2, 3, 4, 5].map((star) => (
-                                                <Star
-                                                    key={star}
-                                                    className={cn(
-                                                        'w-5 h-5',
-                                                        star <= Math.round(locksmith.avg_rating)
-                                                            ? 'text-yellow-400 fill-yellow-400'
-                                                            : 'text-[var(--foreground-muted)]'
-                                                    )}
-                                                />
-                                            ))}
-                                        </div>
-                                        <span className="font-semibold">{formatRating(locksmith.avg_rating)}</span>
-                                        <span className="text-[var(--foreground-secondary)]">
-                                            ({locksmith.review_count} reviews)
-                                        </span>
-                                    </div>
-
-                                    {/* Quick actions on mobile */}
-                                    <div className="flex flex-wrap gap-2 sm:hidden">
-                                        <a href={`tel:${locksmith.phone}`} className="flex-1">
-                                            <Button variant="success" className="w-full" icon={<Phone className="w-4 h-4" />}>
-                                                Call
-                                            </Button>
-                                        </a>
-                                        <Button
-                                            variant="primary"
-                                            className="flex-1"
-                                            icon={<MessageSquare className="w-4 h-4" />}
-                                            onClick={() => setShowQuoteForm(true)}
-                                        >
-                                            Quote
-                                        </Button>
-                                    </div>
-                                </div>
-
-                                {/* Actions on desktop */}
-                                <div className="hidden sm:flex flex-col gap-2">
-                                    <button
-                                        onClick={() => setIsFavorite(!isFavorite)}
-                                        className={cn(
-                                            'p-2 rounded-lg border transition-colors',
-                                            isFavorite
-                                                ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                                                : 'bg-[var(--surface)] border-[var(--border)] text-[var(--foreground-muted)] hover:text-red-400'
-                                        )}
-                                        title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                                    >
-                                        <Heart className={cn('w-5 h-5', isFavorite && 'fill-current')} />
-                                    </button>
-                                    <button
-                                        className="p-2 rounded-lg border bg-[var(--surface)] border-[var(--border)] text-[var(--foreground-muted)] hover:text-[var(--foreground)] transition-colors"
-                                        title="Share"
-                                    >
-                                        <Share2 className="w-5 h-5" />
-                                    </button>
-                                </div>
+                {/* Header Card */}
+                <Card variant={locksmith.featured_tier !== 'standard' ? 'premium' : 'default'} className="mb-6" padding="lg">
+                    <div className="flex flex-col md:flex-row gap-6">
+                        {/* Avatar/Logo */}
+                        <div className="flex-shrink-0">
+                            <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-[var(--primary-600)] to-[var(--secondary-600)] flex items-center justify-center text-3xl font-bold text-white shadow-lg">
+                                {locksmith.business_name.charAt(0)}
                             </div>
-                        </Card>
+                        </div>
 
-                        {/* About */}
-                        <Card padding="lg">
-                            <h2 className="text-lg font-semibold mb-4">About</h2>
-                            <p className="text-[var(--foreground-secondary)] mb-4">
-                                {locksmith.description}
-                            </p>
-                            <div className="grid sm:grid-cols-2 gap-4">
-                                {locksmith.years_in_business && (
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-lg bg-[var(--primary-600)]/10 flex items-center justify-center">
-                                            <Award className="w-5 h-5 text-[var(--primary-400)]" />
-                                        </div>
-                                        <div>
-                                            <p className="font-medium">{locksmith.years_in_business} Years</p>
-                                            <p className="text-sm text-[var(--foreground-muted)]">In Business</p>
-                                        </div>
-                                    </div>
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-start gap-2 mb-2">
+                                {locksmith.featured_tier === 'platinum' && (
+                                    <Badge variant="premium" size="sm">⭐ Platinum</Badge>
+                                )}
+                                {locksmith.featured_tier === 'premium' && (
+                                    <Badge variant="premium" size="sm">Premium</Badge>
                                 )}
                                 {locksmith.is_verified && (
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-lg bg-[var(--success)]/10 flex items-center justify-center">
-                                            <Shield className="w-5 h-5 text-[var(--success)]" />
-                                        </div>
-                                        <div>
-                                            <p className="font-medium">Verified</p>
-                                            <p className="text-sm text-[var(--foreground-muted)]">License & Insurance</p>
-                                        </div>
+                                    <Badge variant="verified" size="sm">
+                                        <Shield className="w-3 h-3" /> Verified
+                                    </Badge>
+                                )}
+                            </div>
+
+                            <h1 className="text-2xl md:text-3xl font-bold mb-2 truncate">
+                                {locksmith.business_name}
+                            </h1>
+
+                            <div className="flex flex-wrap items-center gap-4 text-[var(--foreground-secondary)] mb-4">
+                                <div className="flex items-center gap-1">
+                                    <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                                    <span className="font-medium text-[var(--foreground)]">
+                                        {formatRating(locksmith.avg_rating || 4.5)}
+                                    </span>
+                                    <span>({locksmith.review_count || reviews.length} reviews)</span>
+                                </div>
+                                {locksmith.years_in_business && (
+                                    <div className="flex items-center gap-1">
+                                        <Award className="w-4 h-4" />
+                                        <span>{locksmith.years_in_business}+ years</span>
                                     </div>
                                 )}
-                                {locksmith.is_24_7 && (
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-lg bg-[var(--secondary-600)]/10 flex items-center justify-center">
-                                            <Clock className="w-5 h-5 text-[var(--secondary-400)]" />
-                                        </div>
-                                        <div>
-                                            <p className="font-medium">24/7</p>
-                                            <p className="text-sm text-[var(--foreground-muted)]">Emergency Service</p>
-                                        </div>
+                                {locksmith.response_time_minutes && (
+                                    <div className="flex items-center gap-1">
+                                        <Clock className="w-4 h-4" />
+                                        <span>~{locksmith.response_time_minutes} min response</span>
                                     </div>
                                 )}
                             </div>
-                        </Card>
+
+                            {/* Availability */}
+                            <div className={cn(
+                                'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium',
+                                locksmith.availability_status === 'available'
+                                    ? 'bg-[var(--success)]/10 text-[var(--success)]'
+                                    : locksmith.availability_status === 'busy'
+                                        ? 'bg-yellow-500/10 text-yellow-400'
+                                        : 'bg-gray-500/10 text-gray-400'
+                            )}>
+                                <span className={cn(
+                                    'w-2 h-2 rounded-full',
+                                    locksmith.availability_status === 'available' && 'bg-[var(--success)] animate-pulse',
+                                    locksmith.availability_status === 'busy' && 'bg-yellow-400',
+                                    locksmith.availability_status === 'offline' && 'bg-gray-400'
+                                )} />
+                                {locksmith.availability_status === 'available' ? 'Available Now' :
+                                    locksmith.availability_status === 'busy' ? 'Currently Busy' : 'Offline'}
+                                {locksmith.is_24_7 && <span className="text-xs opacity-70">• 24/7</span>}
+                            </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex md:flex-col gap-2">
+                            <button
+                                onClick={() => setIsFavorite(!isFavorite)}
+                                className={cn(
+                                    'p-3 rounded-xl border transition-all',
+                                    isFavorite
+                                        ? 'bg-pink-500/10 border-pink-500/30 text-pink-400'
+                                        : 'bg-[var(--surface)] border-[var(--border)] text-[var(--foreground-muted)] hover:text-[var(--foreground)]'
+                                )}
+                            >
+                                <Heart className={cn('w-5 h-5', isFavorite && 'fill-current')} />
+                            </button>
+                            <button className="p-3 rounded-xl bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground-muted)] hover:text-[var(--foreground)] transition-colors">
+                                <Share2 className="w-5 h-5" />
+                            </button>
+                        </div>
+                    </div>
+                </Card>
+
+                {/* Main Content Grid */}
+                <div className="grid md:grid-cols-3 gap-6">
+                    {/* Left Content */}
+                    <div className="md:col-span-2 space-y-6">
+                        {/* About */}
+                        {locksmith.description && (
+                            <Card padding="lg">
+                                <h2 className="text-lg font-semibold mb-4">About</h2>
+                                <p className="text-[var(--foreground-secondary)] leading-relaxed">
+                                    {locksmith.description}
+                                </p>
+                            </Card>
+                        )}
 
                         {/* Services & Pricing */}
                         <Card padding="lg">
                             <h2 className="text-lg font-semibold mb-4">Services & Pricing</h2>
                             <div className="space-y-3">
-                                {services.map((service, index) => (
-                                    <div
-                                        key={index}
-                                        className="flex items-center justify-between py-3 border-b border-[var(--border)] last:border-0 last:pb-0"
-                                    >
-                                        <span className="font-medium">{service.name}</span>
-                                        <span className="text-[var(--foreground-secondary)]">
+                                {services.map((service) => (
+                                    <div key={service.slug} className="flex items-center justify-between py-2 border-b border-[var(--border)] last:border-0">
+                                        <span>{service.name}</span>
+                                        <span className="font-medium text-[var(--primary-400)]">
                                             {formatPriceRange(service.price_min, service.price_max)}
                                         </span>
                                     </div>
                                 ))}
                             </div>
-                            <p className="text-sm text-[var(--foreground-muted)] mt-4">
-                                * Prices are estimates. Final pricing may vary based on job complexity.
+                            <p className="text-xs text-[var(--foreground-muted)] mt-4">
+                                * Prices are estimates and may vary based on specific requirements
                             </p>
                         </Card>
 
@@ -301,34 +299,41 @@ export default function LocksmithDetailPage() {
                         <Card padding="lg">
                             <div className="flex items-center justify-between mb-4">
                                 <h2 className="text-lg font-semibold">Reviews</h2>
-                                <span className="text-[var(--foreground-secondary)]">
-                                    {locksmith.review_count} reviews
-                                </span>
+                                <div className="flex items-center gap-1 text-[var(--foreground-secondary)]">
+                                    <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                                    <span className="font-medium">{formatRating(locksmith.avg_rating || 4.5)}</span>
+                                    <span>({reviews.length})</span>
+                                </div>
                             </div>
                             <div className="space-y-4">
                                 {reviews.map((review) => (
-                                    <div key={review.id} className="pb-4 border-b border-[var(--border)] last:border-0 last:pb-0">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <div className="flex">
-                                                {[1, 2, 3, 4, 5].map((star) => (
+                                    <div key={review.id} className="pb-4 border-b border-[var(--border)] last:border-0">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-8 h-8 rounded-full bg-[var(--surface-hover)] flex items-center justify-center">
+                                                    <User className="w-4 h-4 text-[var(--foreground-muted)]" />
+                                                </div>
+                                                <span className="font-medium">{review.user_name}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                {Array.from({ length: 5 }).map((_, i) => (
                                                     <Star
-                                                        key={star}
+                                                        key={i}
                                                         className={cn(
                                                             'w-4 h-4',
-                                                            star <= review.rating
+                                                            i < review.rating
                                                                 ? 'text-yellow-400 fill-yellow-400'
-                                                                : 'text-[var(--foreground-muted)]'
+                                                                : 'text-gray-600'
                                                         )}
                                                     />
                                                 ))}
                                             </div>
-                                            <span className="font-medium text-sm">{review.title}</span>
                                         </div>
-                                        <p className="text-[var(--foreground-secondary)] text-sm mb-2">
+                                        <p className="text-[var(--foreground-secondary)] text-sm">
                                             {review.content}
                                         </p>
-                                        <p className="text-xs text-[var(--foreground-muted)]">
-                                            {review.author} • {review.date}
+                                        <p className="text-xs text-[var(--foreground-muted)] mt-2">
+                                            {formatRelativeTime(review.created_at)}
                                         </p>
                                     </div>
                                 ))}
@@ -336,143 +341,121 @@ export default function LocksmithDetailPage() {
                         </Card>
                     </div>
 
-                    {/* Sidebar */}
+                    {/* Right Sidebar */}
                     <div className="space-y-6">
                         {/* Contact Card */}
-                        <Card variant="glow" padding="lg" className="sticky top-24">
-                            <h3 className="text-lg font-semibold mb-4">Get Help Now</h3>
-
-                            {!showQuoteForm ? (
-                                <div className="space-y-3">
-                                    <a href={`tel:${locksmith.phone}`} className="block">
-                                        <Button variant="success" className="w-full" size="lg" icon={<Phone className="w-5 h-5" />}>
-                                            Call {formatPhone(locksmith.phone)}
+                        <Card variant="glass" padding="lg" className="sticky top-24">
+                            {!showQuoteForm && !quoteSubmitted && (
+                                <>
+                                    <h3 className="font-semibold mb-4">Contact {locksmith.business_name}</h3>
+                                    <div className="space-y-3">
+                                        <a href={`tel:${locksmith.phone}`}>
+                                            <Button variant="primary" className="w-full" size="lg" icon={<Phone className="w-5 h-5" />}>
+                                                Call Now
+                                            </Button>
+                                        </a>
+                                        <Button
+                                            variant="secondary"
+                                            className="w-full"
+                                            size="lg"
+                                            onClick={() => setShowQuoteForm(true)}
+                                            icon={<MessageSquare className="w-5 h-5" />}
+                                        >
+                                            Request Quote
                                         </Button>
-                                    </a>
-                                    <Button
-                                        variant="primary"
-                                        className="w-full"
-                                        size="lg"
-                                        icon={<MessageSquare className="w-5 h-5" />}
-                                        onClick={() => setShowQuoteForm(true)}
-                                    >
-                                        Request Quote
-                                    </Button>
-                                    <a
-                                        href={`https://www.google.com/maps/dir/?api=1&destination=${locksmith.address}+${locksmith.city}+${locksmith.province}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="block"
-                                    >
-                                        <Button variant="secondary" className="w-full" icon={<Navigation className="w-4 h-4" />}>
-                                            Get Directions
-                                        </Button>
-                                    </a>
-                                </div>
-                            ) : quoteSubmitted ? (
-                                <div className="text-center py-6">
-                                    <div className="w-16 h-16 rounded-full bg-[var(--success)]/20 flex items-center justify-center mx-auto mb-4">
-                                        <CheckCircle className="w-8 h-8 text-[var(--success)]" />
+                                        <a href={mapsUrl} target="_blank" rel="noopener noreferrer">
+                                            <Button variant="ghost" className="w-full" icon={<MapPin className="w-5 h-5" />}>
+                                                Get Directions
+                                            </Button>
+                                        </a>
                                     </div>
-                                    <h4 className="text-lg font-semibold mb-2">Quote Requested!</h4>
-                                    <p className="text-[var(--foreground-secondary)] text-sm mb-4">
-                                        {locksmith.business_name} will contact you shortly.
-                                    </p>
-                                    <Button variant="secondary" onClick={() => {
-                                        setShowQuoteForm(false);
-                                        setQuoteSubmitted(false);
-                                    }}>
-                                        Done
-                                    </Button>
-                                </div>
-                            ) : (
+                                    <div className="mt-6 pt-4 border-t border-[var(--border)]">
+                                        <p className="text-sm text-[var(--foreground-secondary)] flex items-center gap-2">
+                                            <Phone className="w-4 h-4" />
+                                            {formatPhone(locksmith.phone)}
+                                        </p>
+                                        <p className="text-sm text-[var(--foreground-secondary)] flex items-center gap-2 mt-2">
+                                            <MapPin className="w-4 h-4" />
+                                            {locksmith.city}, {locksmith.province}
+                                        </p>
+                                        {locksmith.website && (
+                                            <a
+                                                href={locksmith.website}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-sm text-[var(--primary-400)] hover:underline flex items-center gap-2 mt-2"
+                                            >
+                                                <ExternalLink className="w-4 h-4" />
+                                                Visit Website
+                                            </a>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+
+                            {showQuoteForm && !quoteSubmitted && (
                                 <form onSubmit={handleQuoteSubmit} className="space-y-4">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h3 className="font-semibold">Request a Quote</h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowQuoteForm(false)}
+                                            className="text-[var(--foreground-muted)] hover:text-[var(--foreground)]"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
                                     <Input
                                         label="Your Name"
-                                        placeholder="Full name"
-                                        value={quoteName}
-                                        onChange={(e) => setQuoteName(e.target.value)}
+                                        placeholder="John Doe"
+                                        icon={<User className="w-5 h-5" />}
                                         required
                                     />
                                     <Input
-                                        label="Phone Number"
-                                        placeholder="+1 (416) 555-0123"
+                                        label="Phone"
                                         type="tel"
-                                        value={quotePhone}
-                                        onChange={(e) => setQuotePhone(e.target.value)}
+                                        placeholder="(416) 555-0123"
+                                        icon={<Phone className="w-5 h-5" />}
                                         required
                                     />
-                                    <div>
-                                        <label className="block text-sm font-medium text-[var(--foreground-secondary)] mb-2">
-                                            Service Needed
-                                        </label>
-                                        <select
-                                            value={quoteService}
-                                            onChange={(e) => setQuoteService(e.target.value)}
-                                            className="w-full px-4 py-3 rounded-xl bg-[var(--background-secondary)] border border-[var(--border)] text-[var(--foreground)] focus:outline-none focus:border-[var(--primary-500)]"
-                                            required
-                                        >
-                                            <option value="">Select a service</option>
-                                            {services.map((s, i) => (
-                                                <option key={i} value={s.name}>{s.name}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <Textarea
-                                        label="Describe Your Situation"
-                                        placeholder="Tell us about your issue..."
-                                        value={quoteDescription}
-                                        onChange={(e) => setQuoteDescription(e.target.value)}
+                                    <Input
+                                        label="Email"
+                                        type="email"
+                                        placeholder="you@example.com"
+                                        icon={<Mail className="w-5 h-5" />}
                                     />
-                                    <Button
-                                        type="submit"
-                                        variant="primary"
-                                        className="w-full"
-                                        loading={quoteSubmitting}
-                                    >
-                                        Send Quote Request
+                                    <Textarea
+                                        label="Describe your issue"
+                                        placeholder="I'm locked out of my apartment..."
+                                        rows={3}
+                                        required
+                                    />
+                                    <Button type="submit" variant="primary" className="w-full" icon={<Send className="w-5 h-5" />}>
+                                        Send Request
                                     </Button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowQuoteForm(false)}
-                                        className="w-full text-sm text-[var(--foreground-muted)] hover:text-[var(--foreground)] transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
                                 </form>
                             )}
 
-                            {/* Contact Info */}
-                            <div className="mt-6 pt-6 border-t border-[var(--border)] space-y-3">
-                                {locksmith.email && (
-                                    <a
-                                        href={`mailto:${locksmith.email}`}
-                                        className="flex items-center gap-3 text-sm text-[var(--foreground-secondary)] hover:text-[var(--foreground)] transition-colors"
-                                    >
-                                        <Mail className="w-4 h-4" />
-                                        {locksmith.email}
+                            {quoteSubmitted && (
+                                <div className="text-center py-4">
+                                    <div className="w-16 h-16 rounded-full bg-[var(--success)]/20 flex items-center justify-center mx-auto mb-4">
+                                        <CheckCircle className="w-8 h-8 text-[var(--success)]" />
+                                    </div>
+                                    <h3 className="font-semibold mb-2">Request Sent!</h3>
+                                    <p className="text-sm text-[var(--foreground-secondary)] mb-4">
+                                        {locksmith.business_name} will contact you shortly.
+                                    </p>
+                                    <div className="bg-[var(--background-secondary)] rounded-lg p-3 mb-4">
+                                        <p className="text-xs text-[var(--foreground-muted)]">Reference Number</p>
+                                        <p className="font-mono font-medium">{quoteRef}</p>
+                                    </div>
+                                    <a href={`tel:${locksmith.phone}`}>
+                                        <Button variant="primary" className="w-full" icon={<Phone className="w-5 h-5" />}>
+                                            Call Now Instead
+                                        </Button>
                                     </a>
-                                )}
-                                {locksmith.website && (
-                                    <a
-                                        href={locksmith.website}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex items-center gap-3 text-sm text-[var(--foreground-secondary)] hover:text-[var(--foreground)] transition-colors"
-                                    >
-                                        <Globe className="w-4 h-4" />
-                                        Visit Website
-                                        <ExternalLink className="w-3 h-3" />
-                                    </a>
-                                )}
-                                <div className="flex items-start gap-3 text-sm text-[var(--foreground-secondary)]">
-                                    <MapPin className="w-4 h-4 mt-0.5" />
-                                    <span>
-                                        {locksmith.address}<br />
-                                        {locksmith.city}, {locksmith.province} {locksmith.postal_code}
-                                    </span>
                                 </div>
-                            </div>
+                            )}
                         </Card>
                     </div>
                 </div>

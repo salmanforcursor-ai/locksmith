@@ -3,9 +3,9 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import { Card, Button, Input } from '@/components/ui';
 import { KeyRound, Mail, Lock, User, ArrowRight, Chrome, CheckCircle } from 'lucide-react';
-import { signUpWithEmail, signInWithGoogle } from '@/lib/supabase/auth';
 
 export default function SignupPage() {
     const router = useRouter();
@@ -40,39 +40,47 @@ export default function SignupPage() {
 
         setLoading(true);
 
-        try {
-            const result = await signUpWithEmail(
-                formData.email,
-                formData.password,
-                formData.fullName,
-                userType
-            );
-            
-            if (result.error) {
-                setError(result.error);
-                setLoading(false);
-                return;
-            }
+        const supabase = createClient();
 
-            setStep('verify');
+        const { error: authError } = await supabase.auth.signUp({
+            email: formData.email,
+            password: formData.password,
+            options: {
+                data: {
+                    full_name: formData.fullName,
+                    role: userType === 'locksmith' ? 'locksmith_owner' : 'consumer',
+                },
+                emailRedirectTo: `${window.location.origin}/auth/callback`,
+            },
+        });
+
+        if (authError) {
+            setError(authError.message);
             setLoading(false);
-        } catch (err) {
-            setError('An unexpected error occurred. Please try again.');
-            setLoading(false);
+            return;
         }
+
+        setStep('verify');
+        setLoading(false);
     };
 
     const handleGoogleSignup = async () => {
         setLoading(true);
         setError(null);
 
-        const result = await signInWithGoogle();
-        
-        if (result.error) {
-            setError(result.error);
+        const supabase = createClient();
+
+        const { error: authError } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo: `${window.location.origin}/auth/callback`,
+            },
+        });
+
+        if (authError) {
+            setError(authError.message);
             setLoading(false);
         }
-        // OAuth will redirect
     };
 
     if (step === 'verify') {
@@ -227,7 +235,7 @@ export default function SignupPage() {
                             <div className="w-full border-t border-[var(--border)]" />
                         </div>
                         <div className="relative flex justify-center text-sm">
-                            <span className="px-4 bg-[var(--surface)] text-[var(--foreground-muted)]">
+                            <span className="px-4 bg-[rgba(30,30,46,0.6)] text-[var(--foreground-muted)]">
                                 Or continue with
                             </span>
                         </div>
@@ -238,6 +246,7 @@ export default function SignupPage() {
                         variant="secondary"
                         className="w-full"
                         onClick={handleGoogleSignup}
+                        disabled={loading}
                         icon={<Chrome className="w-5 h-5" />}
                     >
                         Sign up with Google

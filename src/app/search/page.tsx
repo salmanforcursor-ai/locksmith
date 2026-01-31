@@ -1,20 +1,17 @@
 'use client';
 
-import React, { useState, useEffect, Suspense, useMemo } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { Card, Button, Input, Badge } from '@/components/ui';
+import { Card, Button, Badge } from '@/components/ui';
 import { LocksmithCard, LocksmithCardSkeleton } from '@/components/locksmith';
-import { getNearestLocksmiths } from '@/lib/mock-data';
 import type { LocksmithWithDistance } from '@/types/database.types';
 import {
     MapPin,
-    Filter,
     List,
     Map as MapIcon,
     SlidersHorizontal,
     CheckCircle,
-    X,
     ChevronDown
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -22,7 +19,7 @@ import { cn } from '@/lib/utils';
 // Dynamic import for map (avoid SSR issues with Leaflet)
 const LocksmithMap = dynamic(
     () => import('@/components/map/LocksmithMap').then(mod => mod.LocksmithMap),
-    { 
+    {
         ssr: false,
         loading: () => (
             <div className="h-[500px] w-full rounded-xl bg-[var(--surface)] animate-pulse flex items-center justify-center">
@@ -45,6 +42,7 @@ function SearchResultsContent() {
     const router = useRouter();
     const [locksmiths, setLocksmiths] = useState<LocksmithWithDistance[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
     const [showFilters, setShowFilters] = useState(false);
 
@@ -65,19 +63,41 @@ function SearchResultsContent() {
     }, [serviceParam]);
 
     useEffect(() => {
-        setLoading(true);
-        // Simulate API call delay
-        const timer = setTimeout(() => {
-            const results = getNearestLocksmiths(lat, lng, {
-                available_only: availableOnly,
-                verified_only: verifiedOnly,
-                service: selectedService !== 'all' ? selectedService : undefined,
-            });
-            setLocksmiths(results);
-            setLoading(false);
-        }, 500);
-        return () => clearTimeout(timer);
-    }, [lat, lng, availableOnly, verifiedOnly, selectedService]);
+        const fetchLocksmiths = async () => {
+            setLoading(true);
+            setError(null);
+
+            try {
+                const params = new URLSearchParams({
+                    lat: lat.toString(),
+                    lng: lng.toString(),
+                    radius: radiusKm.toString(),
+                    available_only: availableOnly.toString(),
+                    verified_only: verifiedOnly.toString(),
+                });
+
+                if (selectedService !== 'all') {
+                    params.set('service', selectedService);
+                }
+
+                const response = await fetch(`/api/locksmiths/nearest?${params.toString()}`);
+
+                if (!response.ok) {
+                    throw new Error('Failed to fetch locksmiths');
+                }
+
+                const data = await response.json();
+                setLocksmiths(data.locksmiths || []);
+            } catch (err) {
+                console.error('Error fetching locksmiths:', err);
+                setError('Failed to load locksmiths. Please try again.');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchLocksmiths();
+    }, [lat, lng, availableOnly, verifiedOnly, selectedService, radiusKm]);
 
     const availableCount = locksmiths.filter(l => l.availability_status === 'available').length;
 
@@ -211,10 +231,20 @@ function SearchResultsContent() {
                     </Card>
                 )}
 
+                {/* Error State */}
+                {error && (
+                    <Card className="text-center py-8 mb-6">
+                        <p className="text-[var(--error)] mb-4">{error}</p>
+                        <Button variant="secondary" onClick={() => window.location.reload()}>
+                            Try Again
+                        </Button>
+                    </Card>
+                )}
+
                 {/* Results */}
                 {loading ? (
                     <div className="space-y-4">
-                        {[1, 2, 3].map((i) => (
+                        {[1, 2, 3, 4, 5].map((i) => (
                             <LocksmithCardSkeleton key={i} />
                         ))}
                     </div>
