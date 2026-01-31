@@ -9,3 +9,6 @@ export type { CardProps } from './Card';
 
 export { Badge, AvailableBadge, BusyBadge, OfflineBadge, VerifiedBadge, PremiumBadge } from './Badge';
 export type { BadgeProps, BadgeVariant } from './Badge';
+
+export { ThemeToggle } from './ThemeToggle';
+

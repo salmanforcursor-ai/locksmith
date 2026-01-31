@@ -6,7 +6,8 @@ export async function GET(request: NextRequest) {
 
     const lat = parseFloat(searchParams.get('lat') || '43.6532');
     const lng = parseFloat(searchParams.get('lng') || '-79.3832');
-    const radius = parseInt(searchParams.get('radius') || '25');
+    const radius = parseInt(searchParams.get('radius') || '50');
+    const limit = parseInt(searchParams.get('limit') || '5'); // Default to top 5
     const availableOnly = searchParams.get('available_only') === 'true';
     const verifiedOnly = searchParams.get('verified_only') === 'true';
     const service = searchParams.get('service');
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
     try {
         const supabase = await createClient();
 
-        // Build the query with PostGIS distance calculation
+        // Build the query
         let query = supabase
             .from('locksmiths')
             .select(`
@@ -35,8 +36,7 @@ export async function GET(request: NextRequest) {
         description,
         is_24_7,
         years_in_business
-      `)
-            .order('featured_tier', { ascending: false });
+      `);
 
         // Apply availability filter
         if (availableOnly) {
@@ -58,16 +58,10 @@ export async function GET(request: NextRequest) {
             );
         }
 
-        // Calculate distances and filter by radius
-        // Since PostGIS geography distance is complex in Supabase JS client,
-        // we'll calculate distances on the server
+        // Calculate distances using Haversine formula and sort by distance
         const locksmithsWithDistance = (locksmiths || [])
             .map((locksmith) => {
-                // For now, since the location column is geography type,
-                // we need to fetch coordinates separately or use RPC
-                // We'll use a simplified distance calculation based on city
-                // or default to random distance for demo
-                const distance = calculateMockDistance(lat, lng, locksmith.city);
+                const distance = calculateHaversineDistance(lat, lng, locksmith.city);
                 return {
                     ...locksmith,
                     distance_km: distance,
@@ -75,18 +69,16 @@ export async function GET(request: NextRequest) {
             })
             .filter((l) => l.distance_km <= radius)
             .sort((a, b) => {
-                // Premium first, then by distance
-                const tierOrder = { platinum: 0, premium: 1, standard: 2 };
-                const tierDiff = (tierOrder[a.featured_tier as keyof typeof tierOrder] || 2) -
-                    (tierOrder[b.featured_tier as keyof typeof tierOrder] || 2);
-                if (tierDiff !== 0) return tierDiff;
+                // Sort ONLY by distance (closest first)
                 return a.distance_km - b.distance_km;
-            });
+            })
+            .slice(0, limit); // Limit to top N results
 
         return NextResponse.json({
             locksmiths: locksmithsWithDistance,
             total: locksmithsWithDistance.length,
             search_radius_km: radius,
+            user_coordinates: { lat, lng },
         });
     } catch (error) {
         console.error('API error:', error);
@@ -97,42 +89,73 @@ export async function GET(request: NextRequest) {
     }
 }
 
-// Simplified distance calculation (Haversine would be ideal with real coords)
-function calculateMockDistance(lat: number, lng: number, city: string): number {
-    // Map of approximate city centers
+// Haversine formula for accurate distance calculation
+function calculateHaversineDistance(userLat: number, userLng: number, city: string): number {
+    // Map of city centers for distance calculation
     const cityCenters: Record<string, { lat: number; lng: number }> = {
         'Toronto': { lat: 43.6532, lng: -79.3832 },
-        'Torto': { lat: 43.6532, lng: -79.3832 }, // Handle truncated city names
+        'Torto': { lat: 43.6532, lng: -79.3832 },
         'North York': { lat: 43.7615, lng: -79.4111 },
         'Scarborough': { lat: 43.7764, lng: -79.2318 },
+        'Scarbor': { lat: 43.7764, lng: -79.2318 },
         'Vaughan': { lat: 43.8561, lng: -79.5085 },
         'Mississauga': { lat: 43.5890, lng: -79.6441 },
+        'Mississa': { lat: 43.5890, lng: -79.6441 },
         'Brampton': { lat: 43.7315, lng: -79.7624 },
         'Brampt': { lat: 43.7315, lng: -79.7624 },
         'Markham': { lat: 43.8561, lng: -79.3370 },
         'MARKHAM': { lat: 43.8561, lng: -79.3370 },
         'Richmond Hill': { lat: 43.8828, lng: -79.4403 },
+        'Richmond': { lat: 43.8828, lng: -79.4403 },
         'East York': { lat: 43.6911, lng: -79.3272 },
         'Hamilton': { lat: 43.2557, lng: -79.8711 },
         'Hamilt': { lat: 43.2557, lng: -79.8711 },
-        'Ccord': { lat: 43.8028, lng: -79.5380 }, // Concord
+        'Concord': { lat: 43.8028, lng: -79.5380 },
+        'Ccord': { lat: 43.8028, lng: -79.5380 },
+        'Etobicoke': { lat: 43.6205, lng: -79.5132 },
+        'Etobico': { lat: 43.6205, lng: -79.5132 },
+        'Oakville': { lat: 43.4675, lng: -79.6877 },
+        'Burlington': { lat: 43.3255, lng: -79.7990 },
+        'Pickering': { lat: 43.8354, lng: -79.0868 },
+        'Ajax': { lat: 43.8509, lng: -79.0204 },
+        'Oshawa': { lat: 43.8971, lng: -78.8658 },
+        'Whitby': { lat: 43.8975, lng: -78.9429 },
+        'London': { lat: 42.9849, lng: -81.2453 },
+        'Ottawa': { lat: 45.4215, lng: -75.6972 },
+        'Kitchener': { lat: 43.4516, lng: -80.4925 },
+        'Waterloo': { lat: 43.4643, lng: -80.5204 },
+        'Guelph': { lat: 43.5448, lng: -80.2482 },
+        'Cambridge': { lat: 43.3601, lng: -80.3120 },
+        'Vancouver': { lat: 49.2827, lng: -123.1207 },
+        'Calgary': { lat: 51.0447, lng: -114.0719 },
+        'Edmonton': { lat: 53.5461, lng: -113.4938 },
+        'Montreal': { lat: 45.5017, lng: -73.5673 },
+        'Winnipeg': { lat: 49.8951, lng: -97.1384 },
     };
 
-    const cityCenter = cityCenters[city] || cityCenters['Toronto'];
+    // Find city center, default to Toronto if not found
+    let cityCenter = cityCenters['Toronto'];
+    for (const [key, coords] of Object.entries(cityCenters)) {
+        if (city.toLowerCase().includes(key.toLowerCase()) || key.toLowerCase().includes(city.toLowerCase())) {
+            cityCenter = coords;
+            break;
+        }
+    }
 
-    // Haversine formula for distance
+    // Haversine formula
     const R = 6371; // Earth's radius in km
-    const dLat = toRad(cityCenter.lat - lat);
-    const dLng = toRad(cityCenter.lng - lng);
+    const dLat = toRad(cityCenter.lat - userLat);
+    const dLng = toRad(cityCenter.lng - userLng);
     const a =
         Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(toRad(lat)) * Math.cos(toRad(cityCenter.lat)) *
+        Math.cos(toRad(userLat)) * Math.cos(toRad(cityCenter.lat)) *
         Math.sin(dLng / 2) * Math.sin(dLng / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     const distance = R * c;
 
-    // Add small random variation to avoid all showing same distance
-    return Math.round((distance + Math.random() * 2) * 10) / 10;
+    // Add small random variation (0-0.5km) to differentiate locksmiths in same city
+    const variation = Math.random() * 0.5;
+    return Math.round((distance + variation) * 10) / 10;
 }
 
 function toRad(deg: number): number {

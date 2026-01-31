@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Button } from '@/components/ui';
+import { Button, ThemeToggle } from '@/components/ui';
 import { KeyRound, Menu, X, User, LogOut, LayoutDashboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -90,8 +90,11 @@ export function Navbar() {
                     ))}
                 </div>
 
-                {/* Desktop Auth */}
+                {/* Desktop Auth + Theme Toggle */}
                 <div className="hidden md:flex items-center gap-3">
+                    {/* Theme Toggle */}
+                    <ThemeToggle variant="navbar" />
+
                     {loading ? (
                         <div className="w-20 h-9 bg-[var(--surface)] rounded-lg animate-pulse" />
                     ) : user ? (
@@ -150,17 +153,20 @@ export function Navbar() {
                     )}
                 </div>
 
-                {/* Mobile Menu Button */}
-                <button
-                    className="md:hidden p-2 text-[var(--foreground)]"
-                    onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                >
-                    {isMobileMenuOpen ? (
-                        <X className="w-6 h-6" />
-                    ) : (
-                        <Menu className="w-6 h-6" />
-                    )}
-                </button>
+                {/* Mobile: Theme Toggle + Menu Button */}
+                <div className="md:hidden flex items-center gap-2">
+                    <ThemeToggle variant="navbar" />
+                    <button
+                        className="p-2 text-[var(--foreground)]"
+                        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                    >
+                        {isMobileMenuOpen ? (
+                            <X className="w-6 h-6" />
+                        ) : (
+                            <Menu className="w-6 h-6" />
+                        )}
+                    </button>
+                </div>
             </nav>
 
             {/* Mobile Menu */}
